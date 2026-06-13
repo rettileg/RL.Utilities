@@ -171,8 +171,6 @@
 // ------
 // • This is a DECODER only - encoding/saving not implemented
 // • Memory usage: ~ width × height × channels bytes per image
-// • WebP cache: additional memory, controllable via set_cache_limit()
-// • Thread safety: Load functions are reentrant; WebP cache uses mutex 
 // -_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-_-
 
 #include <cstdint>
