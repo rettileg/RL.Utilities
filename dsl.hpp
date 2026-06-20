@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <thread>
 
 #include <iostream>
 
@@ -36,7 +37,7 @@
 /// dsl::uuid::v6() - generate uuid v6
 /// dsl::uuid::v7() - generate uuid v7
 /// dsl::uuid::v8() - generate uuid v8
-/// dsl::dmath::pow(a, y) - return a^y (double)
+/// dsl::dmath::pow(a, y) - return a^y (int, double, float)
 /// dsl::dmath::abs(x) - return absolute value x (int, double, float)
 /// dsl::dmath::trunc(x) - return whole part x (int, double, float)
 /// dsl::dmath::lerp(a, b, t) - return linear Interpolation (int, double, float)
@@ -710,58 +711,75 @@ inline void genFnv1a64(const void* data, size_t len, uint8_t* hash) {
 namespace crypto {
 
 inline void ChaCha20(const void* data, size_t len, const uint8_t key[32], const uint8_t nonce[8], uint64_t counter, uint8_t* out) {
-  const uint8_t magic[16] = {'e','x','p','a','n','d',' ','3','2','-','b','y','t','e',' ','k'};
   const uint8_t* in = (const uint8_t*)data;
-  uint32_t state[16];
 
   auto pack4 = [](const uint8_t* a) -> uint32_t {
     return (uint32_t)a[0] | ((uint32_t)a[1] << 8) | ((uint32_t)a[2] << 16) | ((uint32_t)a[3] << 24);
   };
 
-  state[0] = pack4(magic);
-  state[1] = pack4(magic + 4);
-  state[2] = pack4(magic + 8);
-  state[3] = pack4(magic + 12);
-  for (int i = 0; i < 8; ++i) state[4+i] = pack4(key + i*4);
-  state[12] = (uint32_t)counter;
-  state[13] = (uint32_t)(counter >> 32);
-  state[14] = pack4(nonce);
-  state[15] = pack4(nonce + 4);
+  size_t num_threads = std::thread::hardware_concurrency();
+  if (num_threads == 0) num_threads = 4;
 
-  uint8_t ks[64];
-  size_t pos = 64;
+  size_t chunk = ((len + num_threads - 1) / num_threads + 63) / 64 * 64;
 
-  for (size_t i = 0; i < len; ++i) {
-    if (pos >= 64) {
-      uint32_t x[16];
-      for (int j = 0; j < 16; ++j) x[j] = state[j];
+  std::vector<std::thread> threads;
+  for (size_t t = 0; t < num_threads; ++t) {
+    size_t start = t * chunk;
+    size_t end = start + chunk;
+    if (start >= len) break;
+    if (end > len) end = len;
 
-      for (int r = 0; r < 10; ++r) {
-        auto qr = [](uint32_t& a, uint32_t& b, uint32_t& c, uint32_t& d) {
-          a += b; d ^= a; d = (d << 16) | (d >> 16);
-          c += d; b ^= c; b = (b << 12) | (b >> 20);
-          a += b; d ^= a; d = (d << 8)  | (d >> 24);
-          c += d; b ^= c; b = (b << 7)  | (b >> 25);
-        };
-        qr(x[0], x[4], x[8],  x[12]); qr(x[1], x[5], x[9],  x[13]);
-        qr(x[2], x[6], x[10], x[14]); qr(x[3], x[7], x[11], x[15]);
-        qr(x[0], x[5], x[10], x[15]); qr(x[1], x[6], x[11], x[12]);
-        qr(x[2], x[7], x[8],  x[13]); qr(x[3], x[4], x[9],  x[14]);
+    threads.emplace_back([=] {
+      const uint8_t magic[16] = {'e','x','p','a','n','d',' ','3','2','-','b','y','t','e',' ','k'};
+      uint32_t state[16];
+      state[0] = pack4(magic);
+      state[1] = pack4(magic + 4);
+      state[2] = pack4(magic + 8);
+      state[3] = pack4(magic + 12);
+      for (int i = 0; i < 8; ++i) state[4+i] = pack4(key + i*4);
+      state[12] = (uint32_t)(counter + start / 64);
+      state[13] = (uint32_t)((counter + start / 64) >> 32);
+      state[14] = pack4(nonce);
+      state[15] = pack4(nonce + 4);
+
+      uint8_t ks[64];
+      size_t pos = 64;
+
+      for (size_t i = start; i < end; ++i) {
+        if (pos >= 64) {
+          uint32_t x[16];
+          for (int j = 0; j < 16; ++j) x[j] = state[j];
+
+          for (int r = 0; r < 10; ++r) {
+            auto qr = [](uint32_t& a, uint32_t& b, uint32_t& c, uint32_t& d) {
+              a += b; d ^= a; d = (d << 16) | (d >> 16);
+              c += d; b ^= c; b = (b << 12) | (b >> 20);
+              a += b; d ^= a; d = (d << 8)  | (d >> 24);
+              c += d; b ^= c; b = (b << 7)  | (b >> 25);
+            };
+            qr(x[0], x[4], x[8],  x[12]); qr(x[1], x[5], x[9],  x[13]);
+            qr(x[2], x[6], x[10], x[14]); qr(x[3], x[7], x[11], x[15]);
+            qr(x[0], x[5], x[10], x[15]); qr(x[1], x[6], x[11], x[12]);
+            qr(x[2], x[7], x[8],  x[13]); qr(x[3], x[4], x[9],  x[14]);
+          }
+
+          for (int j = 0; j < 16; ++j) {
+            x[j] += state[j];
+            ks[j*4]   = (uint8_t)x[j];
+            ks[j*4+1] = (uint8_t)(x[j] >> 8);
+            ks[j*4+2] = (uint8_t)(x[j] >> 16);
+            ks[j*4+3] = (uint8_t)(x[j] >> 24);
+          }
+
+          if (!++state[12]) ++state[13];
+          pos = 0;
+        }
+        out[i] = in[i] ^ ks[pos++];
       }
-
-      for (int j = 0; j < 16; ++j) {
-        x[j] += state[j];
-        ks[j*4]   = (uint8_t)x[j];
-        ks[j*4+1] = (uint8_t)(x[j] >> 8);
-        ks[j*4+2] = (uint8_t)(x[j] >> 16);
-        ks[j*4+3] = (uint8_t)(x[j] >> 24);
-      }
-
-      if (!++state[12]) ++state[13];
-      pos = 0;
-    }
-    out[i] = in[i] ^ ks[pos++];
+    });
   }
+
+  for (auto& th : threads) th.join();
 }
 
 } // crypto
