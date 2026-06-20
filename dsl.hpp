@@ -370,40 +370,17 @@ inline std::string v8() {
 
 namespace dmath {
 
-inline int pow(int a, int y) {
-  int result = 1;
-  int abs_y = (y < 0) ? -y : y; 
-  for (int i = 0; i < abs_y; i++) {
-    result *= a;
-  }
-  if (y < 0) {
-    return 1 / result;
-  }
-  return result;
-}
-
-inline double pow(double a, double y) {
-  double result = 1.0;
-  double abs_y = (y < 0) ? -y : y; 
-  for (int i = 0; i < abs_y; i++) {
-    result *= a;
-  }
-  if (y < 0) {
-    return 1.0 / result;
-  }
-  return result;
-}
-
-inline float pow(float a, float y) {
-  float result = 1.0f;
-  float abs_y = (y < 0) ? -y : y; 
-  for (int i = 0; i < abs_y; i++) {
-    result *= a;
-  }
-  if (y < 0) {
-    return 1.0f / result;
-  }
-  return result;
+inline double pow(double a, int y) {
+    if (y == 0) return 1.0;
+    int abs_y = (y < 0) ? -y : y;
+    double result = 1.0;
+    for (int i = 0; i < abs_y; i++) {
+        result *= a;
+    }
+    if (y < 0) {
+        return 1.0 / result;
+    }
+    return result;
 }
 
 inline int abs(int x) {
