@@ -36,7 +36,7 @@
 /// dsl::uuid::v6() - generate uuid v6
 /// dsl::uuid::v7() - generate uuid v7
 /// dsl::uuid::v8() - generate uuid v8
-/// dsl::dmath::pow(a, y) - return a^y (int, double, float)
+/// dsl::dmath::pow(a, y) - return a^y (double)
 /// dsl::dmath::abs(x) - return absolute value x (int, double, float)
 /// dsl::dmath::trunc(x) - return whole part x (int, double, float)
 /// dsl::dmath::lerp(a, b, t) - return linear Interpolation (int, double, float)
