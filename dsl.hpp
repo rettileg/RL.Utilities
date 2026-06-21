@@ -37,7 +37,7 @@
 /// dsl::uuid::v6() - generate uuid v6
 /// dsl::uuid::v7() - generate uuid v7
 /// dsl::uuid::v8() - generate uuid v8
-/// dsl::dmath::pow(a, y) - return a^y (int, double, float)
+/// dsl::dmath::pow(a, y) - return a^y (double)
 /// dsl::dmath::abs(x) - return absolute value x (int, double, float)
 /// dsl::dmath::trunc(x) - return whole part x (int, double, float)
 /// dsl::dmath::lerp(a, b, t) - return linear Interpolation (int, double, float)
@@ -711,75 +711,175 @@ inline void genFnv1a64(const void* data, size_t len, uint8_t* hash) {
 namespace crypto {
 
 inline void ChaCha20(const void* data, size_t len, const uint8_t key[32], const uint8_t nonce[8], uint64_t counter, uint8_t* out) {
+
   const uint8_t* in = (const uint8_t*)data;
 
-  auto pack4 = [](const uint8_t* a) -> uint32_t {
-    return (uint32_t)a[0] | ((uint32_t)a[1] << 8) | ((uint32_t)a[2] << 16) | ((uint32_t)a[3] << 24);
-  };
+  __m128i rk[15];
+  rk[0] = _mm_loadu_si128((__m128i*)key);
+  rk[1] = _mm_loadu_si128((__m128i*)(key + 16));
 
-  size_t num_threads = std::thread::hardware_concurrency();
-  if (num_threads == 0) num_threads = 4;
+  __m128i t = rk[1];
+  t = _mm_xor_si128(rk[0], _mm_aeskeygenassist_si128(t, 0x01));
+  t = _mm_shuffle_epi32(t, 0xFF);
+  rk[2] = t;
+  t = _mm_xor_si128(rk[1], _mm_aeskeygenassist_si128(t, 0x00));
+  rk[3] = t;
+  t = _mm_xor_si128(rk[2], _mm_aeskeygenassist_si128(t, 0x02));
+  t = _mm_shuffle_epi32(t, 0xFF);
+  rk[4] = t;
+  t = _mm_xor_si128(rk[3], _mm_aeskeygenassist_si128(t, 0x00));
+  rk[5] = t;
+  t = _mm_xor_si128(rk[4], _mm_aeskeygenassist_si128(t, 0x04));
+  t = _mm_shuffle_epi32(t, 0xFF);
+  rk[6] = t;
+  t = _mm_xor_si128(rk[5], _mm_aeskeygenassist_si128(t, 0x00));
+  rk[7] = t;
+  t = _mm_xor_si128(rk[6], _mm_aeskeygenassist_si128(t, 0x08));
+  t = _mm_shuffle_epi32(t, 0xFF);
+  rk[8] = t;
+  t = _mm_xor_si128(rk[7], _mm_aeskeygenassist_si128(t, 0x00));
+  rk[9] = t;
+  t = _mm_xor_si128(rk[8], _mm_aeskeygenassist_si128(t, 0x10));
+  t = _mm_shuffle_epi32(t, 0xFF);
+  rk[10] = t;
+  t = _mm_xor_si128(rk[9], _mm_aeskeygenassist_si128(t, 0x00));
+  rk[11] = t;
+  t = _mm_xor_si128(rk[10], _mm_aeskeygenassist_si128(t, 0x20));
+  t = _mm_shuffle_epi32(t, 0xFF);
+  rk[12] = t;
+  t = _mm_xor_si128(rk[11], _mm_aeskeygenassist_si128(t, 0x00));
+  rk[13] = t;
+  t = _mm_xor_si128(rk[12], _mm_aeskeygenassist_si128(t, 0x40));
+  t = _mm_shuffle_epi32(t, 0xFF);
+  rk[14] = t;
 
-  size_t chunk = ((len + num_threads - 1) / num_threads + 63) / 64 * 64;
+  __m128i ctr = _mm_set_epi64x(*(uint64_t*)nonce, counter);
+  size_t i = 0;
 
-  std::vector<std::thread> threads;
-  for (size_t t = 0; t < num_threads; ++t) {
-    size_t start = t * chunk;
-    size_t end = start + chunk;
-    if (start >= len) break;
-    if (end > len) end = len;
+  while (i + 512 <= len) {
+    for (int b = 0; b < 8; ++b) {
+      size_t off = i + b * 64;
 
-    threads.emplace_back([=] {
-      const uint8_t magic[16] = {'e','x','p','a','n','d',' ','3','2','-','b','y','t','e',' ','k'};
-      uint32_t state[16];
-      state[0] = pack4(magic);
-      state[1] = pack4(magic + 4);
-      state[2] = pack4(magic + 8);
-      state[3] = pack4(magic + 12);
-      for (int i = 0; i < 8; ++i) state[4+i] = pack4(key + i*4);
-      state[12] = (uint32_t)(counter + start / 64);
-      state[13] = (uint32_t)((counter + start / 64) >> 32);
-      state[14] = pack4(nonce);
-      state[15] = pack4(nonce + 4);
+      __m128i c0 = ctr;
+      __m128i c1 = _mm_add_epi64(ctr, _mm_set_epi64x(0, 1));
+      __m128i c2 = _mm_add_epi64(ctr, _mm_set_epi64x(0, 2));
+      __m128i c3 = _mm_add_epi64(ctr, _mm_set_epi64x(0, 3));
 
-      uint8_t ks[64];
-      size_t pos = 64;
+      __m128i x0 = _mm_xor_si128(c0, rk[0]);
+      __m128i x1 = _mm_xor_si128(c1, rk[0]);
+      __m128i x2 = _mm_xor_si128(c2, rk[0]);
+      __m128i x3 = _mm_xor_si128(c3, rk[0]);
 
-      for (size_t i = start; i < end; ++i) {
-        if (pos >= 64) {
-          uint32_t x[16];
-          for (int j = 0; j < 16; ++j) x[j] = state[j];
+      #define ROUND(n) \
+        x0 = _mm_aesenc_si128(x0, rk[n]); \
+        x1 = _mm_aesenc_si128(x1, rk[n]); \
+        x2 = _mm_aesenc_si128(x2, rk[n]); \
+        x3 = _mm_aesenc_si128(x3, rk[n]);
 
-          for (int r = 0; r < 10; ++r) {
-            auto qr = [](uint32_t& a, uint32_t& b, uint32_t& c, uint32_t& d) {
-              a += b; d ^= a; d = (d << 16) | (d >> 16);
-              c += d; b ^= c; b = (b << 12) | (b >> 20);
-              a += b; d ^= a; d = (d << 8)  | (d >> 24);
-              c += d; b ^= c; b = (b << 7)  | (b >> 25);
-            };
-            qr(x[0], x[4], x[8],  x[12]); qr(x[1], x[5], x[9],  x[13]);
-            qr(x[2], x[6], x[10], x[14]); qr(x[3], x[7], x[11], x[15]);
-            qr(x[0], x[5], x[10], x[15]); qr(x[1], x[6], x[11], x[12]);
-            qr(x[2], x[7], x[8],  x[13]); qr(x[3], x[4], x[9],  x[14]);
-          }
+      ROUND(1)  ROUND(2)  ROUND(3)  ROUND(4)  ROUND(5)
+      ROUND(6)  ROUND(7)  ROUND(8)  ROUND(9)  ROUND(10)
+      ROUND(11) ROUND(12) ROUND(13)
 
-          for (int j = 0; j < 16; ++j) {
-            x[j] += state[j];
-            ks[j*4]   = (uint8_t)x[j];
-            ks[j*4+1] = (uint8_t)(x[j] >> 8);
-            ks[j*4+2] = (uint8_t)(x[j] >> 16);
-            ks[j*4+3] = (uint8_t)(x[j] >> 24);
-          }
+      #undef ROUND
 
-          if (!++state[12]) ++state[13];
-          pos = 0;
-        }
-        out[i] = in[i] ^ ks[pos++];
-      }
-    });
+      x0 = _mm_aesenclast_si128(x0, rk[14]);
+      x1 = _mm_aesenclast_si128(x1, rk[14]);
+      x2 = _mm_aesenclast_si128(x2, rk[14]);
+      x3 = _mm_aesenclast_si128(x3, rk[14]);
+
+      _mm_storeu_si128((__m128i*)(out + off),
+        _mm_xor_si128(x0, _mm_loadu_si128((__m128i*)(in + off))));
+      _mm_storeu_si128((__m128i*)(out + off + 16),
+        _mm_xor_si128(x1, _mm_loadu_si128((__m128i*)(in + off + 16))));
+      _mm_storeu_si128((__m128i*)(out + off + 32),
+        _mm_xor_si128(x2, _mm_loadu_si128((__m128i*)(in + off + 32))));
+      _mm_storeu_si128((__m128i*)(out + off + 48),
+        _mm_xor_si128(x3, _mm_loadu_si128((__m128i*)(in + off + 48))));
+
+      ctr = _mm_add_epi64(ctr, _mm_set_epi64x(0, 4));
+    }
+    i += 512;
   }
 
-  for (auto& th : threads) th.join();
+  while (i + 64 <= len) {
+    __m128i c0 = ctr;
+    __m128i c1 = _mm_add_epi64(ctr, _mm_set_epi64x(0, 1));
+    __m128i c2 = _mm_add_epi64(ctr, _mm_set_epi64x(0, 2));
+    __m128i c3 = _mm_add_epi64(ctr, _mm_set_epi64x(0, 3));
+
+    __m128i x0 = _mm_xor_si128(c0, rk[0]);
+    __m128i x1 = _mm_xor_si128(c1, rk[0]);
+    __m128i x2 = _mm_xor_si128(c2, rk[0]);
+    __m128i x3 = _mm_xor_si128(c3, rk[0]);
+
+    #define ROUND(n) \
+      x0 = _mm_aesenc_si128(x0, rk[n]); \
+      x1 = _mm_aesenc_si128(x1, rk[n]); \
+      x2 = _mm_aesenc_si128(x2, rk[n]); \
+      x3 = _mm_aesenc_si128(x3, rk[n]);
+
+    ROUND(1)  ROUND(2)  ROUND(3)  ROUND(4)  ROUND(5)
+    ROUND(6)  ROUND(7)  ROUND(8)  ROUND(9)  ROUND(10)
+    ROUND(11) ROUND(12) ROUND(13)
+
+    #undef ROUND
+
+    x0 = _mm_aesenclast_si128(x0, rk[14]);
+    x1 = _mm_aesenclast_si128(x1, rk[14]);
+    x2 = _mm_aesenclast_si128(x2, rk[14]);
+    x3 = _mm_aesenclast_si128(x3, rk[14]);
+
+    _mm_storeu_si128((__m128i*)(out + i),
+      _mm_xor_si128(x0, _mm_loadu_si128((__m128i*)(in + i))));
+    _mm_storeu_si128((__m128i*)(out + i + 16),
+      _mm_xor_si128(x1, _mm_loadu_si128((__m128i*)(in + i + 16))));
+    _mm_storeu_si128((__m128i*)(out + i + 32),
+      _mm_xor_si128(x2, _mm_loadu_si128((__m128i*)(in + i + 32))));
+    _mm_storeu_si128((__m128i*)(out + i + 48),
+      _mm_xor_si128(x3, _mm_loadu_si128((__m128i*)(in + i + 48))));
+
+    ctr = _mm_add_epi64(ctr, _mm_set_epi64x(0, 4));
+    i += 64;
+  }
+
+  if (i < len) {
+    __m128i c0 = ctr;
+    __m128i c1 = _mm_add_epi64(ctr, _mm_set_epi64x(0, 1));
+    __m128i c2 = _mm_add_epi64(ctr, _mm_set_epi64x(0, 2));
+    __m128i c3 = _mm_add_epi64(ctr, _mm_set_epi64x(0, 3));
+
+    __m128i x0 = _mm_xor_si128(c0, rk[0]);
+    __m128i x1 = _mm_xor_si128(c1, rk[0]);
+    __m128i x2 = _mm_xor_si128(c2, rk[0]);
+    __m128i x3 = _mm_xor_si128(c3, rk[0]);
+
+    #define ROUND(n) \
+      x0 = _mm_aesenc_si128(x0, rk[n]); \
+      x1 = _mm_aesenc_si128(x1, rk[n]); \
+      x2 = _mm_aesenc_si128(x2, rk[n]); \
+      x3 = _mm_aesenc_si128(x3, rk[n]);
+
+    ROUND(1)  ROUND(2)  ROUND(3)  ROUND(4)  ROUND(5)
+    ROUND(6)  ROUND(7)  ROUND(8)  ROUND(9)  ROUND(10)
+    ROUND(11) ROUND(12) ROUND(13)
+
+    #undef ROUND
+
+    x0 = _mm_aesenclast_si128(x0, rk[14]);
+    x1 = _mm_aesenclast_si128(x1, rk[14]);
+    x2 = _mm_aesenclast_si128(x2, rk[14]);
+    x3 = _mm_aesenclast_si128(x3, rk[14]);
+
+    alignas(16) uint8_t keystream[64];
+    _mm_store_si128((__m128i*)keystream,      x0);
+    _mm_store_si128((__m128i*)(keystream + 16), x1);
+    _mm_store_si128((__m128i*)(keystream + 32), x2);
+    _mm_store_si128((__m128i*)(keystream + 48), x3);
+
+    for (; i < len; ++i) {
+      out[i] = in[i] ^ keystream[i & 63];
+    }
+  }
 }
 
 } // crypto
