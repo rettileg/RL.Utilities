@@ -50,7 +50,7 @@
 /// dsl::hash::genSha256(data, len, hash) - generate sha-256 hash
 /// dsl::hash::genFnv1a32(datam len, hash) - generate 32-bit Fvn1a hash
 /// dsl::hash::genFnv1a64(datam len, hash) - generate 64-bit Fvn1a hash
-/// dsl::crypto::ChaCha20(data, len, key, nonce, counter, out) - encrypts data using the method ChaCha20
+/// dsl::crypto::AES256CTR(data, len, key, nonce, counter, out) - encrypts data using the method AES256CTR
 /// dsl::encode::encbase64(data, len, out) - encode base64
 /// dsl::encode::decbase64(data, len, out) - decode base64
 
@@ -710,7 +710,7 @@ inline void genFnv1a64(const void* data, size_t len, uint8_t* hash) {
 
 namespace crypto {
 
-inline void ChaCha20(const void* data, size_t len, const uint8_t key[32], const uint8_t nonce[8], uint64_t counter, uint8_t* out) {
+inline void AES256CTR(const void* data, size_t len, const uint8_t key[32], const uint8_t nonce[8], uint64_t counter, uint8_t* out) {
 
   const uint8_t* in = (const uint8_t*)data;
 
